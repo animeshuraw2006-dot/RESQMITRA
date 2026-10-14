@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "collection": "sosRequests",
+  "documentId": "Firestore-generated ID",
+  "fields": {
+    "requesterId": {
+      "type": "string",
+      "required": true,
+      "description": "Firebase Authentication UID of the help seeker"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "General SOS",
+        "Women SOS",
+        "Child SOS"
+      ],
+      "required": true
+    },
+    "emergencyType": {
+      "type": "string",
+      "required": true
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "critical",
+        "high",
+        "normal"
+      ],
+      "required": true
+    },
+    "instructions": {
+      "type": "string",
+      "required": true,
+      "maxLength": 2000
+    },
+    "doNotCall": {
+      "type": "boolean",
+      "required": true
+    },
+    "bloodGroup": {
+      "type": "string",
+      "enum": [
+        "Any blood group",
+        "A+",
+        "A-",
+        "B+",
+        "B-",
+        "AB+",
+        "AB-",
+        "O+",
+        "O-"
+      ],
+      "required": true
+    },
+    "audioRequested": {
+      "type": "boolean",
+      "required": true,
+      "description": "UI flag only; no audio is captured/uploaded in current starter"
+    },
+    "audioObjectPath": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "required": true
+    },
+    "location": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": true,
+      "properties": {
+        "latitude": {
+          "type": "number"
+        },
+        "longitude": {
+          "type": "number"
+        },
+        "accuracyMeters": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "capturedAt": {
+          "type": "timestamp"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "accepted",
+        "en_route",
+        "arrived",
+        "cancelled",
+        "safe",
+        "expired"
+      ],
+      "required": true
+    },
+    "acceptedResponderIds": {
+      "type": "array",
+      "items": "string",
+      "required": true
+    },
+    "createdAt": {
+      "type": "timestamp",
+      "required": true
+    },
+    "updatedAt": {
+      "type": "timestamp",
+      "required": true
+    },
+    "expiresAt": {
+      "type": "timestamp",
+      "required": true
+    }
+  }
+}
