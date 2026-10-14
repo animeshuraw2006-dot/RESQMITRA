@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function verifiedResponder() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/responders/$(request.auth.uid))
+        && get(/databases/$(database)/documents/responders/$(request.auth.uid)).data.verified == true
+        && get(/databases/$(database)/documents/responders/$(request.auth.uid)).data.active == true;
+    }
+
+    match /sosRequests/{sosId} {
+      // A help seeker may create a request only for their own authenticated UID.
+      allow create: if signedIn()
+        && request.resource.data.requesterId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.category in ['General SOS', 'Women SOS', 'Child SOS']
+        && request.resource.data.instructions is string
+        && request.resource.data.instructions.size() <= 2000
+        && request.resource.data.doNotCall is bool
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      // Requester can read their own request. Verified responders can see active requests.
+      allow read: if signedIn() && (
+        resource.data.requesterId == request.auth.uid ||
+        (verifiedResponder() && resource.data.status in ['pending', 'accepted', 'en_route'])
+      );
+
+      // Requester may cancel or mark safe; verified responders may accept/advance a request.
+      allow update: if signedIn() && (
+        (resource.data.requesterId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.status in ['cancelled', 'safe']
+          && request.resource.data.updatedAt == request.time)
+        ||
+        (verifiedResponder()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'acceptedResponderIds'])
+          && request.resource.data.status in ['accepted', 'en_route', 'arrived']
+          && request.resource.data.updatedAt == request.time)
+      );
+      allow delete: if false;
+    }
+
+    // Only administrators should create/update these records through a trusted backend.
+    // Do not allow clients to self-verify.
+    match /responders/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+  }
+}
