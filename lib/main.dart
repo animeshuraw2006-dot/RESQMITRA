@@ -138,7 +138,7 @@ class AppState extends ChangeNotifier {
         latitude: lat,
         longitude: lng,
         accuracyMeters: accuracy,
-        // Replace with FirebaseAuth.instance.currentUser!.uid after Auth is connected.
+        // Use the current Firebase Auth UID for request ownership.
         requesterId: FirebaseAuth.instance.currentUser?.uid ?? 'demo-anonymous-user',
       );
       activeRequestId = id;
@@ -172,7 +172,7 @@ class _SplashPageState extends State<SplashPage> {
       child: SafeArea(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Container(width: 230, height: 230, padding: const EdgeInsets.all(8), decoration: BoxDecoration(
           shape: BoxShape.circle, border: Border.all(color: saffron, width: 4)),
-          child: ClipOval(child: Image.asset('assets/resq_mitra_logo.jpeg', fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.health_and_safety_rounded, size: 132, color: green))),
+          child: ClipOval(child: Image.asset('assets/resq_mitra_logo.jpeg', fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.health_and_safety_rounded, size: 132, color: green)))),
         const SizedBox(height: 18),
         const Text('RESQ-MITRA', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 1.1, color: navy)),
         const SizedBox(height: 6),
@@ -314,7 +314,7 @@ class EmergencyTypesPage extends StatelessWidget {
     }, child: Padding(padding: const EdgeInsets.all(10), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       Text(e.icon, style: const TextStyle(fontSize: 34)), const SizedBox(height: 8), Text(e.name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, color: navy)), const SizedBox(height: 4), const Icon(Icons.arrow_forward_rounded, color: navy, size: 18),
     ]))));
-  });
+  }));
 }
 
 class ConfirmSosPage extends StatefulWidget {
@@ -443,7 +443,7 @@ class ResponderPage extends StatelessWidget {
       }),
     const SizedBox(height: 14), OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderMapPage())), icon: const Icon(Icons.map_outlined), label: const Text('OPEN RESPONDER MAP')),
     const SizedBox(height: 8), const Text('Responder identity verification, proximity filtering, dispatch and acceptance locking must be implemented server-side.', style: TextStyle(fontSize: 12, color: Colors.black54)),
-  ]);
+  ]));
 }
 
 class ResponderMapPage extends StatefulWidget {
