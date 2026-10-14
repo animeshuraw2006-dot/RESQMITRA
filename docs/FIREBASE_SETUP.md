@@ -4,7 +4,7 @@ This starter now has a Firestore repository and a responder queue that listens t
 
 ## 1. Create Firebase project
 1. Create a project at https://console.firebase.google.com/.
-2. Add an Android app using the package name `com.example.resq_mitra` only if that matches the Android app created by `flutter create . --platforms=android`. Check `android/app/build.gradle` for `applicationId` and use that exact value.
+2. This repository's GitHub workflow generates Android scaffolding with `flutter create --platforms=android --org com.resqmitra .` if it is missing. The resulting Android application ID is usually `com.resqmitra.resq_mitra`; verify it in `android/app/build.gradle` or `android/app/build.gradle.kts`, and register that exact ID in Firebase.
 3. Enable **Cloud Firestore** in production mode.
 4. Enable **Authentication → Sign-in method → Anonymous**. This starter uses anonymous auth to identify a device session; it is not a verified identity or a production account system.
 5. Download `google-services.json` into `android/app/`.

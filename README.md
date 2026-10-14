@@ -29,3 +29,30 @@ See `docs/PRODUCTION_ARCHITECTURE.md` for a suggested API/data model. Do not put
 
 ## Firestore live SOS storage
 The project now includes `lib/services/sos_repository.dart`, `database.schema.json`, `firestore.rules`, `firestore.indexes.json`, and `firebase.json`. Once Firebase is configured, SOS records are written to the `sosRequests` collection and the responder page listens for active requests. Follow `docs/FIREBASE_SETUP.md` before testing. Firebase must be configured and verified responder records provisioned by an administrator; otherwise the app remains in local demo mode. Anonymous auth is only a starter identity, not production-grade verification.
+
+
+## Android build scaffold
+The source archive may not include generated `android/` Gradle files. The GitHub Actions workflow now generates the Android platform files automatically before `flutter pub get`, analysis, and APK build. If building locally for the first time, run:
+```bash
+flutter create --platforms=android --org com.resqmitra .
+flutter pub get
+flutter build apk --debug
+```
+If you already have a customized Android folder, back it up before running `flutter create`.
+
+
+## Android build files and GitHub Actions
+
+This source archive does not include generated Android Gradle scaffolding. The GitHub Actions workflow now generates the Android platform files with `flutter create` before dependency installation, analysis, or APK compilation, then explicitly checks that the Gradle build file exists. This fixes the `android/app/build.gradle` PathNotFoundException.
+
+If building locally from the project root, run:
+
+```bash
+flutter create --platforms=android --org com.resqmitra --project-name resq_mitra .
+flutter pub get
+dart format lib
+flutter analyze
+flutter build apk --debug
+```
+
+The workflow can build a debug APK without a Firebase project configured. Live Firebase functionality still requires the setup described in `docs/FIREBASE_SETUP.md`.
