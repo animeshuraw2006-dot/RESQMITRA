@@ -164,7 +164,9 @@ class AppState extends ChangeNotifier {
       final localAudioPath = draft.audioLocalPath;
       if (localAudioPath != null && Firebase.apps.isNotEmpty) {
         final uid = FirebaseAuth.instance.currentUser?.uid;
-        if (uid == null) throw StateError('Sign in is required to upload emergency audio.');
+        if (uid == null) {
+          throw StateError('Sign in is required to upload emergency audio.');
+        }
         final audioRef = FirebaseStorage.instance.ref('sos-audio/$uid/${DateTime.now().millisecondsSinceEpoch}.m4a');
         await audioRef.putFile(File(localAudioPath), SettableMetadata(contentType: 'audio/mp4'));
         audioUrl = await audioRef.getDownloadURL();
@@ -761,8 +763,27 @@ class _ResponderPageState extends State<ResponderPage> {
   bool _sirenReady = false;
   @override void initState() { super.initState(); _siren.setReleaseMode(ReleaseMode.stop); _sirenReady = true; }
   @override void dispose() { _siren.dispose(); _voicePlayer.dispose(); super.dispose(); }
-  Future<void> _playVoice(String url) async { try { await _voicePlayer.stop(); await _voicePlayer.play(UrlSource(url)); } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not play the attached voice recording.'))); } }
-  Future<void> _playSiren() async { if (!_sirenReady) return; try { await _siren.stop(); await _siren.play(AssetSource('responder_siren.ogg')); } catch (_) {} }
+  Future<void> _playVoice(String url) async {
+    try {
+      await _voicePlayer.stop();
+      await _voicePlayer.play(UrlSource(url));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not play the attached voice recording.')),
+        );
+      }
+    }
+  }
+  Future<void> _playSiren() async {
+    if (!_sirenReady) {
+      return;
+    }
+    try {
+      await _siren.stop();
+      await _siren.play(AssetSource('responder_siren.ogg'));
+    } catch (_) {}
+  }
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('AS RESPONDER'), actions: [IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderMapPage())), icon: const Icon(Icons.map))]), body: ListView(padding: const EdgeInsets.all(18), children: [
     Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF073B65), Color(0xFF078442)]), borderRadius: BorderRadius.circular(20)), child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Icon(Icons.volunteer_activism, color: Colors.white, size: 40), SizedBox(height: 10), Text('Be the help someone needs.', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)), Text('Accept nearby requests only if you are trained and can respond safely.', style: TextStyle(color: Colors.white)),
