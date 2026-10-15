@@ -690,7 +690,13 @@ class _HighAlertPageState extends State<HighAlertPage> {
       const SizedBox(height: 8),
       OutlinedButton.icon(onPressed: () async {
         await appState.cancelSos();
-        if (context.mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomePage()), (route) => false);
+        if (context.mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+            (route) => false,
+          );
+        }
       }, icon: const Icon(Icons.cancel_outlined), label: const Text('CANCEL ALERT')),
       const SizedBox(height: 8),
       const Text('If there is immediate danger, call the local emergency number as well. The app cannot guarantee responder arrival.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
