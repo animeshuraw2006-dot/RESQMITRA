@@ -195,7 +195,11 @@ class AppState extends ChangeNotifier {
   Future<void> cancelSos() async {
     final id = activeRequestId;
     if (id != null) {
-      try { await SosRepository.instance.updateStatus(id, 'cancelled'); } catch (_) {}
+      try {
+        await SosRepository.instance.updateStatus(id, 'cancelled');
+      } catch (_) {
+        // Keep local cancellation responsive if the remote update fails.
+      }
     }
     active = null; activeRequestId = null; notifyListeners();
   }
@@ -273,6 +277,26 @@ class _AuthPageState extends State<AuthPage> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _friendlyError(FirebaseAuthException error) {
+    switch (error.code) {
+      case 'invalid-email':
+        return 'That email address is invalid. Check it and try again.';
+      case 'user-disabled':
+        return 'This account has been disabled. Contact support.';
+      case 'operation-not-allowed':
+        return 'Email-link sign-in is not enabled in Firebase Authentication.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a while and try again.';
+      case 'invalid-action-code':
+      case 'expired-action-code':
+        return 'This sign-in link is invalid or expired. Request a new link.';
+      case 'network-request-failed':
+        return 'Network connection failed. Check your internet and try again.';
+      default:
+        return error.message ?? 'Authentication failed. Please try again.';
+    }
   }
 
   Future<void> _enterApp() async {
