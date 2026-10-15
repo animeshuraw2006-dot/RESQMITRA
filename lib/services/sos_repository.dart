@@ -26,6 +26,7 @@ class SosRepository {
     required double? longitude,
     required double? accuracyMeters,
     required String requesterId,
+    bool highAlert = false,
   }) async {
     if (!available) return null;
     final now = FieldValue.serverTimestamp();
@@ -33,7 +34,8 @@ class SosRepository {
       'requesterId': requesterId,
       'category': category,
       'emergencyType': emergencyType,
-      'urgency': _urgency(category, emergencyType),
+      'urgency': highAlert ? 'high_alert' : _urgency(category, emergencyType),
+      'highAlert': highAlert,
       'instructions': instructions,
       'doNotCall': doNotCall,
       'bloodGroup': bloodGroup,

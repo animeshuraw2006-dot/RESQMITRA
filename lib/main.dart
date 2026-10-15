@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -110,9 +112,9 @@ class AppState extends ChangeNotifier {
   final List<Map<String, String>> demoRequests = [];
   String? activeRequestId;
   String databaseStatus = 'Local demo only';
-  Future<void> createSos(SosDraft draft) async {
+  Future<void> createSos(SosDraft draft, {bool highAlert = false}) async {
     active = draft;
-    demoRequests.insert(0, {'type': draft.category, 'emergency': draft.emergency, 'status': 'Pending'});
+    demoRequests.insert(0, {'type': draft.category, 'emergency': draft.emergency, 'status': 'Pending', 'urgency': highAlert ? 'HIGH ALERT' : 'normal'});
     notifyListeners();
     double? lat, lng, accuracy;
     try {
@@ -140,6 +142,7 @@ class AppState extends ChangeNotifier {
         accuracyMeters: accuracy,
         // Replace with FirebaseAuth.instance.currentUser!.uid after Auth is connected.
         requesterId: FirebaseAuth.instance.currentUser?.uid ?? 'demo-anonymous-user',
+        highAlert: highAlert,
       );
       activeRequestId = id;
       databaseStatus = id == null ? 'Local demo only — Firebase not configured' : 'Saved to live database';
@@ -157,6 +160,8 @@ class AppState extends ChangeNotifier {
   }
 }
 final appState = AppState();
+final highAlertSirenPlayer = AudioPlayer();
+final Set<String> alertedHighAlertIds = <String>{};
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -279,8 +284,10 @@ class _HomePageState extends State<HomePage> {
       Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), gradient: const LinearGradient(colors: [Color(0xFFFFF0E2), Color(0xFFE8F8EE)])), child: Column(children: [
         const Text('HELP IS ONE TAP AWAY', style: TextStyle(color: navy, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
         const SizedBox(height: 20),
-        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SosTypesPage())), borderRadius: BorderRadius.circular(100), child: Container(width: 190, height: 190, decoration: BoxDecoration(shape: BoxShape.circle, color: red, boxShadow: [BoxShadow(color: red.withValues(alpha: .28), blurRadius: 28, spreadRadius: 5)]), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sos, color: Colors.white, size: 64), Text('SOS', style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900)), Text('GET HELP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
-        const SizedBox(height: 16), const Text('Choose an emergency type. Share your location only with verified responders.', textAlign: TextAlign.center, style: TextStyle(color: navy)),
+        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SosTypesPage())), borderRadius: BorderRadius.circular(100), child: Container(width: 174, height: 174, decoration: BoxDecoration(shape: BoxShape.circle, color: red, boxShadow: [BoxShadow(color: red.withValues(alpha: .28), blurRadius: 28, spreadRadius: 5)]), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sos, color: Colors.white, size: 58), Text('SOS', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)), Text('GET HELP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
+        const SizedBox(height: 16),
+        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HighAlertPage())), borderRadius: BorderRadius.circular(22), child: Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 14), decoration: BoxDecoration(color: const Color(0xFF69000B), borderRadius: BorderRadius.circular(22), border: Border.all(color: const Color(0xFFFF5968), width: 2), boxShadow: const [BoxShadow(color: Color(0x55700000), blurRadius: 18, spreadRadius: 2)]), child: const Row(children: [Icon(Icons.warning_rounded, color: Colors.white, size: 46), SizedBox(width: 14), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('HIGH ALERT SOS', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: .6)), SizedBox(height: 4), Text('Immediate danger • 5-second countdown • no questions', style: TextStyle(color: Color(0xFFFFD8DC), fontWeight: FontWeight.w600))])), Icon(Icons.arrow_forward_ios, color: Colors.white)]))),
+        const SizedBox(height: 16), const Text('Choose an emergency type for standard SOS. High Alert sends an immediate-danger request after its 5-second countdown.', textAlign: TextAlign.center, style: TextStyle(color: navy)),
       ])),
       const SizedBox(height: 22), const Text('EMERGENCY HELPLINES', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: navy)),
       const SizedBox(height: 8),
@@ -289,6 +296,77 @@ class _HomePageState extends State<HomePage> {
       const SizedBox(height: 8), const Text('Emergency numbers can vary by location. Verify local numbers before relying on them.', style: TextStyle(fontSize: 12, color: Colors.black54)),
     ]),
   ));
+}
+
+class HighAlertPage extends StatefulWidget {
+  const HighAlertPage({super.key});
+  @override State<HighAlertPage> createState() => _HighAlertPageState();
+}
+
+class _HighAlertPageState extends State<HighAlertPage> {
+  int seconds = 5;
+  Timer? timer;
+  bool sending = false;
+  @override void initState() { super.initState(); timer = Timer.periodic(const Duration(seconds: 1), (t) { if (!mounted) { t.cancel(); return; } if (seconds <= 1) { t.cancel(); setState(() => seconds = 0); _sendHighAlert(); } else { setState(() => seconds--); } }); }
+  Future<void> _sendHighAlert() async {
+    if (sending || !mounted) return;
+    sending = true;
+    final draft = SosDraft()..category = 'HIGH ALERT SOS'..emergency = 'Immediate Help Required'..notes = 'Automatic high-alert request after 5-second countdown. No further questions.';
+    await appState.createSos(draft, highAlert: true);
+    if (mounted) { Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HighAlertActivePage())); }
+  }
+  @override void dispose() { timer?.cancel(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFF310006),
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          children: [
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.emergency, color: Color(0xFFFF5968), size: 68),
+                  const SizedBox(height: 8),
+                  const Text('HIGH ALERT', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                  const SizedBox(height: 12),
+                  const Text('IMMEDIATE DANGER', style: TextStyle(color: Color(0xFFFF9DA7), fontSize: 18, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 28),
+                  Container(
+                    width: 270,
+                    height: 270,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFF79000D), border: Border.all(color: const Color(0xFFFF5968), width: 5), boxShadow: const [BoxShadow(color: Color(0xAAE00020), blurRadius: 35, spreadRadius: 8)]),
+                    child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Text('$seconds', style: const TextStyle(color: Colors.white, fontSize: 112, height: 1, fontWeight: FontWeight.w900)), const Text('SECONDS', style: TextStyle(color: Color(0xFFFFD8DC), fontWeight: FontWeight.bold, letterSpacing: 3))])),
+                  ),
+                  const SizedBox(height: 28),
+                  const Text('When countdown ends, the app will submit an emergency request with your available location. No extra questions.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 16)),
+                ],
+              ),
+            ),
+            if (seconds > 0)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Color(0xFFFF9DA7), width: 1.5), padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17), backgroundColor: const Color(0xFF69000B)),
+                  onPressed: () { timer?.cancel(); Navigator.pop(context); },
+                  icon: const Icon(Icons.close),
+                  label: const Text('CANCEL SOS — I AM SAFE', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: .5)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class HighAlertActivePage extends StatelessWidget {
+  const HighAlertActivePage({super.key});
+  @override Widget build(BuildContext context) => Scaffold(backgroundColor: const Color(0xFF310006), appBar: AppBar(backgroundColor: const Color(0xFF310006), foregroundColor: Colors.white, title: const Text('HIGH ALERT ACTIVE')), body: SafeArea(child: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+    const Icon(Icons.campaign_rounded, color: Color(0xFFFF5968), size: 100), const Text('EMERGENCY SIGNAL SENT', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)), const SizedBox(height: 14), const Text('Your high-alert request has been submitted. Keep your phone available and move to safety if possible.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFFFFD8DC), fontSize: 17)), const SizedBox(height: 18), Text(appState.databaseStatus, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)), const SizedBox(height: 24), FilledButton.icon(style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB00018), padding: const EdgeInsets.all(16)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderPage())), icon: const Icon(Icons.volunteer_activism), label: const Text('OPEN RESPONDER QUEUE')), const SizedBox(height: 10), OutlinedButton(onPressed: () { appState.cancelSos(); Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomePage()), (r) => false); }, child: const Text('CANCEL ALERT', style: TextStyle(color: Colors.white))), const SizedBox(height: 16), const Text('If you are in immediate danger, call your local emergency number too. Background push notifications require a configured push-notification service.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 12)),
+  ])))));
 }
 
 class SosTypesPage extends StatelessWidget {
@@ -415,16 +493,33 @@ class ResponderPage extends StatelessWidget {
           if (!snapshot.hasData) { return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())); }
           final docs = snapshot.data!.docs;
           if (docs.isEmpty) { return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No active SOS requests.'))); }
+          for (final doc in docs) {
+            final data = doc.data();
+            final isHigh = data['highAlert'] == true || data['urgency'] == 'high_alert';
+            if (isHigh && alertedHighAlertIds.add(doc.id)) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                if (!context.mounted) return;
+                try { await highAlertSirenPlayer.play(AssetSource('high_alert_siren.ogg')); } catch (_) {}
+                if (!context.mounted) return;
+                showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(backgroundColor: const Color(0xFF69000B), title: const Text('🚨 HIGH ALERT SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)), content: Text('A person needs immediate assistance.\nLocation: ${(data['location'] as Map<String, dynamic>?)?['latitude'] ?? 'unavailable'}, ${(data['location'] as Map<String, dynamic>?)?['longitude'] ?? 'unavailable'}\n\nRespond only if you can do so safely.', style: const TextStyle(color: Colors.white)), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CLOSE', style: TextStyle(color: Colors.white))), FilledButton(onPressed: () async { try { await SosRepository.instance.updateStatus(doc.id, 'accepted'); } catch (_) {} if (dialogContext.mounted) Navigator.pop(dialogContext); }, child: const Text('ACCEPT SOS'))]));
+              });
+            }
+          }
           return Column(children: docs.map((doc) {
             final data = doc.data();
             final loc = data['location'] as Map<String, dynamic>?;
             final distanceText = loc == null ? 'Location unavailable' : 'Location: ${loc['latitude']}, ${loc['longitude']}';
-            return Card(child: ListTile(
-              leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E9), child: Icon(Icons.sos, color: red)),
-              title: Text('${data['emergencyType'] ?? 'Emergency'}'),
-              subtitle: Text('${data['category'] ?? 'SOS'} • ${data['urgency'] ?? 'normal'}\n$distanceText\n${data['instructions'] ?? ''}'),
+            final isHighAlert = data['highAlert'] == true || data['urgency'] == 'high_alert';
+            return Card(color: isHighAlert ? const Color(0xFF69000B) : null, child: ListTile(
+              leading: CircleAvatar(backgroundColor: isHighAlert ? const Color(0xFFFF5968) : const Color(0xFFFFE4E9), child: Icon(isHighAlert ? Icons.warning_rounded : Icons.sos, color: isHighAlert ? Colors.white : red)),
+              title: Text(isHighAlert ? '🚨 HIGH ALERT — ${data['emergencyType'] ?? 'Immediate Help'}' : '${data['emergencyType'] ?? 'Emergency'}', style: TextStyle(color: isHighAlert ? Colors.white : null, fontWeight: isHighAlert ? FontWeight.w900 : FontWeight.normal)),
+              subtitle: Text('${data['category'] ?? 'SOS'} • ${data['urgency'] ?? 'normal'}\n$distanceText\n${data['instructions'] ?? ''}', style: TextStyle(color: isHighAlert ? Colors.white70 : null)),
               isThreeLine: true,
-              trailing: FilledButton(onPressed: () async {
+              onTap: isHighAlert ? () async {
+                try { await highAlertSirenPlayer.play(AssetSource('high_alert_siren.ogg')); } catch (_) {}
+                if (context.mounted) { showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(backgroundColor: const Color(0xFF69000B), title: const Text('🚨 HIGH ALERT SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)), content: Text('A person needs immediate assistance.\n\n$distanceText\n\nPlease accept only if you can respond safely.', style: const TextStyle(color: Colors.white)), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CLOSE', style: TextStyle(color: Colors.white))), FilledButton(onPressed: () async { try { await SosRepository.instance.updateStatus(doc.id, 'accepted'); } catch (_) {} if (dialogContext.mounted) Navigator.pop(dialogContext); }, child: const Text('ACCEPT SOS'))])); }
+              } : null,
+              trailing: isHighAlert ? IconButton(tooltip: 'Play alert siren', color: Colors.white, onPressed: () async { try { await highAlertSirenPlayer.play(AssetSource('high_alert_siren.ogg')); } catch (_) {} }, icon: const Icon(Icons.volume_up_rounded)) : FilledButton(onPressed: () async {
                 try {
                   await SosRepository.instance.updateStatus(doc.id, 'accepted');
                   if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request marked accepted in Firestore. Add verified responder authentication before production.'))); }
