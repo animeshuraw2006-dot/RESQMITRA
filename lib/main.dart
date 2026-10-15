@@ -164,7 +164,7 @@ class SplashPage extends StatefulWidget {
 }
 class _SplashPageState extends State<SplashPage> {
   @override void initState() { super.initState(); Future.delayed(const Duration(milliseconds: 1700), () {
-    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthPage()));
+    if (mounted) { Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthPage())); }
   }); }
   @override Widget build(BuildContext context) => Scaffold(
     body: Container(width: double.infinity, decoration: const BoxDecoration(gradient: LinearGradient(
@@ -238,7 +238,7 @@ class _PermissionsPageState extends State<PermissionsPage> {
     if (key == 'Location' && status.isGranted) {
       try { await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium)); } catch (_) {}
     }
-    if (mounted) setState(() => granted[key] = status.isGranted);
+    if (mounted) { setState(() => granted[key] = status.isGranted); }
   }
   @override Widget build(BuildContext context) {
     final items = ['Location', 'Camera', 'Sound', 'Microphone', 'Vibration', 'Calling', 'Notifications'];
@@ -270,7 +270,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> call(String number) async {
     final uri = Uri(scheme: 'tel', path: number);
     if (!await launchUrl(uri)) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open dialer for $number')));
+      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open dialer for $number'))); }
     }
   }
   @override Widget build(BuildContext context) => AnimatedBuilder(animation: appState, builder: (context, _) => Scaffold(
@@ -279,7 +279,7 @@ class _HomePageState extends State<HomePage> {
       Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), gradient: const LinearGradient(colors: [Color(0xFFFFF0E2), Color(0xFFE8F8EE)])), child: Column(children: [
         const Text('HELP IS ONE TAP AWAY', style: TextStyle(color: navy, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
         const SizedBox(height: 20),
-        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SosTypesPage())), borderRadius: BorderRadius.circular(100), child: Container(width: 190, height: 190, decoration: BoxDecoration(shape: BoxShape.circle, color: red, boxShadow: [BoxShadow(color: red.withOpacity(.28), blurRadius: 28, spreadRadius: 5)]), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sos, color: Colors.white, size: 64), Text('SOS', style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900)), Text('GET HELP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
+        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SosTypesPage())), borderRadius: BorderRadius.circular(100), child: Container(width: 190, height: 190, decoration: BoxDecoration(shape: BoxShape.circle, color: red, boxShadow: [BoxShadow(color: red.withValues(alpha: .28), blurRadius: 28, spreadRadius: 5)]), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sos, color: Colors.white, size: 64), Text('SOS', style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900)), Text('GET HELP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
         const SizedBox(height: 16), const Text('Choose an emergency type. Share your location only with verified responders.', textAlign: TextAlign.center, style: TextStyle(color: navy)),
       ])),
       const SizedBox(height: 22), const Text('EMERGENCY HELPLINES', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: navy)),
@@ -299,7 +299,7 @@ class SosTypesPage extends StatelessWidget {
     _typeCard(context, 'Child SOS', 'Safe children, brighter futures', const Color(0xFFF2BE00), Icons.child_care, childItems),
   ]));
   Widget _typeCard(BuildContext context, String title, String sub, Color color, IconData icon, List<Emergency> items) => Card(
-    clipBehavior: Clip.antiAlias, child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyTypesPage(category: title, items: items, color: color))), child: Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withOpacity(.95), color.withOpacity(.72)])), child: Row(children: [
+    clipBehavior: Clip.antiAlias, child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyTypesPage(category: title, items: items, color: color))), child: Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withValues(alpha: .95), color.withValues(alpha: .72)])), child: Row(children: [
       Icon(icon, color: Colors.white, size: 44), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)), Text(sub, style: const TextStyle(color: Colors.white))])), const Icon(Icons.chevron_right, color: Colors.white, size: 32),
     ]))));
 }
@@ -341,7 +341,7 @@ class _ConfirmSosPageState extends State<ConfirmSosPage> {
       if (bloodNeeded) ...[
         const Text('Blood group needed', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(value: d.blood, items: ['Any blood group', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) => setState(() => d.blood = v ?? d.blood)),
+        DropdownButtonFormField<String>(initialValue: d.blood, items: ['Any blood group', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) => setState(() => d.blood = v ?? d.blood)),
         const SizedBox(height: 16),
       ],
       const Text('Explain what happened', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -411,10 +411,10 @@ class ResponderPage extends StatelessWidget {
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: SosRepository.instance.watchActiveRequests(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) return const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Could not load requests. Check Firestore rules and indexes.')));
-          if (!snapshot.hasData) return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
+          if (snapshot.hasError) { return const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Could not load requests. Check Firestore rules and indexes.'))); }
+          if (!snapshot.hasData) { return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())); }
           final docs = snapshot.data!.docs;
-          if (docs.isEmpty) return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No active SOS requests.')));
+          if (docs.isEmpty) { return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No active SOS requests.'))); }
           return Column(children: docs.map((doc) {
             final data = doc.data();
             final loc = data['location'] as Map<String, dynamic>?;
@@ -427,9 +427,9 @@ class ResponderPage extends StatelessWidget {
               trailing: FilledButton(onPressed: () async {
                 try {
                   await SosRepository.instance.updateStatus(doc.id, 'accepted');
-                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request marked accepted in Firestore. Add verified responder authentication before production.')));
+                  if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request marked accepted in Firestore. Add verified responder authentication before production.'))); }
                 } catch (_) {
-                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not accept request. Check database rules.')));
+                  if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not accept request. Check database rules.'))); }
                 }
               }, child: const Text('ACCEPT')),
             ));
@@ -439,7 +439,7 @@ class ResponderPage extends StatelessWidget {
     else
       AnimatedBuilder(animation: appState, builder: (context, _) {
         final active = appState.active;
-        if (active == null) return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No local demo requests. Configure Firebase to share SOS requests across devices.')));
+        if (active == null) { return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No local demo requests. Configure Firebase to share SOS requests across devices.'))); }
         return Card(child: ListTile(leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E9), child: Icon(Icons.sos, color: red)), title: Text(active.emergency), subtitle: Text('${active.category} • local demo only'), trailing: const Text('DEMO')));
       }),
     const SizedBox(height: 14), OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderMapPage())), icon: const Icon(Icons.map_outlined), label: const Text('OPEN RESPONDER MAP')),
