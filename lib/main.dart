@@ -8,6 +8,7 @@ import 'services/sos_repository.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -165,27 +166,119 @@ final Set<String> alertedHighAlertIds = <String>{};
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
-  @override State<SplashPage> createState() => _SplashPageState();
+  @override
+  State<SplashPage> createState() => _SplashPageState();
 }
+
 class _SplashPageState extends State<SplashPage> {
-  @override void initState() { super.initState(); Future.delayed(const Duration(milliseconds: 1700), () {
-    if (mounted) { Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthPage())); }
-  }); }
-  @override Widget build(BuildContext context) => Scaffold(
-    body: Container(width: double.infinity, decoration: const BoxDecoration(gradient: LinearGradient(
-      colors: [Color(0xFFFFF8F0), Colors.white, Color(0xFFEFFAF3)], begin: Alignment.topLeft, end: Alignment.bottomRight)),
-      child: SafeArea(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(width: 230, height: 230, padding: const EdgeInsets.all(8), decoration: BoxDecoration(
-          shape: BoxShape.circle, border: Border.all(color: saffron, width: 4)),
-          child: ClipOval(child: Image.asset('assets/resq_mitra_logo.jpeg', fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.health_and_safety_rounded, size: 132, color: green))),
+  VideoPlayerController? _controller;
+  Timer? _fallbackTimer;
+  bool _navigated = false;
+  bool _videoReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fallbackTimer = Timer(const Duration(seconds: 8), _openAuth);
+    _initializeVideo();
+  }
+
+  Future<void> _initializeVideo() async {
+    final controller = VideoPlayerController.asset('assets/resq_mitra_intro.mp4');
+    _controller = controller;
+    try {
+      await controller.initialize();
+      if (!mounted || _navigated) return;
+      await controller.setLooping(false);
+      setState(() => _videoReady = true);
+      await controller.play();
+      controller.addListener(() {
+        if (controller.value.isInitialized && controller.value.isCompleted) {
+          _openAuth();
+        }
+      });
+    } catch (_) {
+      // Keep the branded fallback screen and continue after the 8-second intro window.
+    }
+  }
+
+  void _openAuth() {
+    if (!mounted || _navigated) return;
+    _navigated = true;
+    _fallbackTimer?.cancel();
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AuthPage()));
+  }
+
+  @override
+  void dispose() {
+    _fallbackTimer?.cancel();
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: navy,
+    body: Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_videoReady && _controller != null)
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _controller!.value.size.width,
+              height: _controller!.value.size.height,
+              child: VideoPlayer(_controller!),
+            ),
+          )
+        else
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF082A4D), Color(0xFF075A50), Color(0xFF082A4D)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Center(
+              child: Image.asset(
+                'assets/resq_mitra_logo.jpeg',
+                width: 180,
+                height: 180,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(Icons.health_and_safety_rounded, size: 150, color: Colors.white),
+              ),
+            ),
+          ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x55082A4D), Color(0x00082A4D), Color(0xDD082A4D)],
+              stops: [0, .45, 1],
+            ),
+          ),
         ),
-        const SizedBox(height: 18),
-        const Text('RESQ-MITRA', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 1.1, color: navy)),
-        const SizedBox(height: 6),
-        const Text('NO LIFE LEFT BEHIND', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 2, color: green)),
-        const SizedBox(height: 20), const CircularProgressIndicator(color: saffron),
-        const SizedBox(height: 15), const Text('HELP  |  SUPPORT  |  TOGETHER', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.1)),
-      ]))),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 30, 24, 28),
+            child: Column(
+              children: [
+                const Spacer(),
+                const Text('RESQ-MITRA', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 2.2, shadows: [Shadow(color: Colors.black45, blurRadius: 12)])),
+                const SizedBox(height: 10),
+                const Text('NO LIFE LEFT BEHIND', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFFFFC928), fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 2.1)),
+                const SizedBox(height: 9),
+                const Text('HELP  |  SUPPORT  |  TOGETHER', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+                const SizedBox(height: 22),
+                const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFFFFC928))),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -373,15 +466,76 @@ class HighAlertActivePage extends StatelessWidget {
 
 class SosTypesPage extends StatelessWidget {
   const SosTypesPage({super.key});
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Choose SOS type')), body: ListView(padding: const EdgeInsets.all(18), children: [
-    _typeCard(context, 'General SOS', 'For everyone, anytime, anywhere', blue, Icons.groups, generalItems),
-    _typeCard(context, 'Women SOS', 'Safety, support, always', pink, Icons.woman, womenItems),
-    _typeCard(context, 'Child SOS', 'Safe children, brighter futures', const Color(0xFFF2BE00), Icons.child_care, childItems),
-  ]));
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_rounded, color: navy)),
+                const Expanded(child: Text('CHOOSE YOUR SOS', textAlign: TextAlign.center, style: TextStyle(color: navy, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.1))),
+                const SizedBox(width: 48),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text('Select the help you need', style: TextStyle(color: navy, fontSize: 14, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Column(
+                children: [
+                  Expanded(child: _typeCard(context, 'GENERAL SOS', 'Emergency help for everyone', blue, Icons.health_and_safety_rounded, generalItems)),
+                  const SizedBox(height: 12),
+                  Expanded(child: _typeCard(context, 'WOMEN SOS', 'Safety, protection and support', pink, Icons.woman_rounded, womenItems)),
+                  const SizedBox(height: 12),
+                  Expanded(child: _typeCard(context, 'CHILD SOS', 'Protecting children, every moment', const Color(0xFFF2BE00), Icons.child_care_rounded, childItems)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
   Widget _typeCard(BuildContext context, String title, String sub, Color color, IconData icon, List<Emergency> items) => Card(
-    clipBehavior: Clip.antiAlias, child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyTypesPage(category: title, items: items, color: color))), child: Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withValues(alpha: .95), color.withValues(alpha: .72)])), child: Row(children: [
-      Icon(icon, color: Colors.white, size: 44), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)), Text(sub, style: const TextStyle(color: Colors.white))])), const Icon(Icons.chevron_right, color: Colors.white, size: 32),
-    ]))));
+    margin: EdgeInsets.zero,
+    elevation: 4,
+    shadowColor: color.withValues(alpha: .28),
+    clipBehavior: Clip.antiAlias,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    child: InkWell(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyTypesPage(category: title == 'GENERAL SOS' ? 'General SOS' : title == 'WOMEN SOS' ? 'Women SOS' : 'Child SOS', items: items, color: color))),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [color.withValues(alpha: .96), color.withValues(alpha: .78)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 78,
+              height: 78,
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: .22), borderRadius: BorderRadius.circular(22), border: Border.all(color: Colors.white.withValues(alpha: .65), width: 1.5)),
+              child: Icon(icon, color: Colors.white, size: 48),
+            ),
+            const SizedBox(width: 18),
+            Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: .6, shadows: [Shadow(color: Colors.black26, blurRadius: 5)])),
+              const SizedBox(height: 6),
+              Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              const Text('TAP TO CONTINUE  →', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.0)),
+            ])),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class EmergencyTypesPage extends StatelessWidget {
