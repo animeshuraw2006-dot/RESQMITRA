@@ -224,7 +224,9 @@ class _AuthPageState extends State<AuthPage> {
       onError: (_) {},
     );
     _appLinks.getInitialLink().then((uri) {
-      if (uri != null) _completeEmailLink(uri.toString());
+      if (uri != null) {
+        _completeEmailLink(uri.toString());
+      }
     }).catchError((_) {});
   }
 
@@ -238,12 +240,16 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   void _showMessage(String message) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _enterApp() async {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     appState.signedIn = true;
     Navigator.pushReplacement(
       context,
@@ -282,7 +288,9 @@ class _AuthPageState extends State<AuthPage> {
         },
         verificationFailed: (e) => _showMessage(_friendlyError(e)),
         codeSent: (id, token) {
-          if (!mounted) return;
+          if (!mounted) {
+      return;
+    }
           setState(() {
             verificationId = id;
             resendToken = token;
@@ -299,7 +307,9 @@ class _AuthPageState extends State<AuthPage> {
     } catch (e) {
       _showMessage('Could not send OTP: $e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -323,7 +333,9 @@ class _AuthPageState extends State<AuthPage> {
     } catch (e) {
       _showMessage('Could not verify OTP: $e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -355,12 +367,16 @@ class _AuthPageState extends State<AuthPage> {
     } catch (e) {
       _showMessage('Could not send email sign-in link: $e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
   }
 
   Future<void> _completeEmailLink(String link) async {
-    if (!_auth.isSignInWithEmailLink(link)) return;
+    if (!_auth.isSignInWithEmailLink(link)) {
+      return;
+    }
     final address = email.text.trim();
     if (address.isEmpty) {
       _showMessage('Enter the same email address you used to request the sign-in link, then open the link again.');
@@ -590,7 +606,9 @@ class _HighAlertPageState extends State<HighAlertPage> {
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
+      if (!mounted) {
+      return;
+    }
       if (_seconds <= 1) {
         timer.cancel();
         setState(() => _seconds = 0);
@@ -602,11 +620,15 @@ class _HighAlertPageState extends State<HighAlertPage> {
   }
 
   Future<void> _startCamera() async {
-    if (_cameraStarting || _camera != null) return;
+    if (_cameraStarting || _camera != null) {
+      return;
+    }
     _cameraStarting = true;
     try {
       final cameras = await availableCameras();
-      if (cameras.isEmpty) throw StateError('No camera is available on this device.');
+      if (cameras.isEmpty) {
+        throw StateError('No camera is available on this device.');
+      }
       final selected = cameras.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
@@ -622,7 +644,9 @@ class _HighAlertPageState extends State<HighAlertPage> {
         _cameraMessage = 'Camera preview is active on this device.';
       });
     } catch (e) {
-      if (mounted) setState(() => _cameraMessage = 'Camera unavailable: $e');
+      if (mounted) {
+        setState(() => _cameraMessage = 'Camera unavailable: $e');
+      }
     } finally {
       _cameraStarting = false;
     }
