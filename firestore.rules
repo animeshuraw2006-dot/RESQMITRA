@@ -14,7 +14,7 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.requesterId == request.auth.uid
         && request.resource.data.status == 'pending'
-        && request.resource.data.category in ['General SOS', 'Women SOS', 'Child SOS']
+        && request.resource.data.category in ['General SOS', 'Women SOS', 'Child SOS', 'HIGH ALERT SOS']
         && request.resource.data.instructions is string
         && request.resource.data.instructions.size() <= 2000
         && request.resource.data.doNotCall is bool

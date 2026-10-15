@@ -13,7 +13,8 @@
       "enum": [
         "General SOS",
         "Women SOS",
-        "Child SOS"
+        "Child SOS",
+        "HIGH ALERT SOS"
       ],
       "required": true
     },
@@ -34,6 +35,33 @@
       "type": "string",
       "required": true,
       "maxLength": 2000
+    },
+    "highAlert": {
+      "type": "boolean",
+      "required": false,
+      "description": "True for the critical-priority HIGH ALERT SOS flow"
+    },
+    "videoRequested": {
+      "type": "boolean",
+      "required": false,
+      "description": "A request for live video; actual streaming requires a configured secure media backend"
+    },
+    "videoStatus": {
+      "type": "string",
+      "enum": [
+        "not_requested",
+        "backend_required",
+        "connecting",
+        "live",
+        "ended",
+        "failed"
+      ],
+      "required": false
+    },
+    "deviceSilentModeRequested": {
+      "type": "boolean",
+      "required": false,
+      "description": "Records the user's high-alert silent-mode request; the app does not force Android ringer settings"
     },
     "doNotCall": {
       "type": "boolean",

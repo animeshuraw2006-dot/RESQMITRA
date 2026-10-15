@@ -6,6 +6,9 @@ import 'services/sos_repository.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:camera/camera.dart';
+import 'package:app_links/app_links.dart';
+import 'dart:async';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -101,6 +104,8 @@ class SosDraft {
   String blood = 'Any blood group';
   bool doNotCall = false;
   bool recordingRequested = false;
+  bool highAlert = false;
+  bool videoRequested = false;
 }
 
 class AppState extends ChangeNotifier {
@@ -135,6 +140,8 @@ class AppState extends ChangeNotifier {
         doNotCall: draft.doNotCall,
         bloodGroup: draft.blood,
         audioRequested: draft.recordingRequested,
+        highAlert: draft.highAlert,
+        videoRequested: draft.videoRequested,
         latitude: lat,
         longitude: lng,
         accuracyMeters: accuracy,
@@ -187,34 +194,286 @@ class _SplashPageState extends State<SplashPage> {
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
-  @override State<AuthPage> createState() => _AuthPageState();
+  @override
+  State<AuthPage> createState() => _AuthPageState();
 }
+
 class _AuthPageState extends State<AuthPage> {
-  final email = TextEditingController(), password = TextEditingController();
-  bool create = true, obscure = true;
-  @override void dispose() { email.dispose(); password.dispose(); super.dispose(); }
-  void enter() {
-    if (email.text.trim().isEmpty || password.text.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter an email/phone and password of at least 8 characters.')));
+  final email = TextEditingController();
+  final phone = TextEditingController();
+  final otp = TextEditingController();
+  final _auth = FirebaseAuth.instance;
+  final _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSubscription;
+  bool usePhone = true;
+  bool codeSent = false;
+  bool busy = false;
+  String? verificationId;
+  int? resendToken;
+
+  // Replace YOUR_FIREBASE_PROJECT_ID with the Firebase project's Hosting/auth domain.
+  static const emailContinueUrl =
+      'https://YOUR_FIREBASE_PROJECT_ID.firebaseapp.com/finishSignIn';
+  static const androidPackageName = 'com.resqmitra.resq_mitra';
+
+  @override
+  void initState() {
+    super.initState();
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+      (uri) => _completeEmailLink(uri.toString()),
+      onError: (_) {},
+    );
+    _appLinks.getInitialLink().then((uri) {
+      if (uri != null) _completeEmailLink(uri.toString());
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    email.dispose();
+    phone.dispose();
+    otp.dispose();
+    super.dispose();
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _enterApp() async {
+    if (!mounted) return;
+    appState.signedIn = true;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const PermissionsPage()),
+    );
+  }
+
+  String _friendlyError(FirebaseAuthException e) => switch (e.code) {
+        'invalid-phone-number' => 'Enter a valid phone number with country code, e.g. +91…',
+        'invalid-verification-code' => 'That OTP is incorrect. Check the SMS and try again.',
+        'session-expired' => 'The OTP expired. Please request a new code.',
+        'too-many-requests' => 'Too many attempts. Please wait before trying again.',
+        'quota-exceeded' => 'Firebase SMS quota exceeded. Check your Firebase billing and limits.',
+        'operation-not-allowed' => 'Enable this sign-in method in Firebase Console → Authentication.',
+        _ => e.message ?? 'Authentication failed. Please try again.',
+      };
+
+  Future<void> _sendPhoneOtp() async {
+    final number = phone.text.trim();
+    if (!number.startsWith('+') || number.length < 8) {
+      _showMessage('Enter your phone number with country code, e.g. +91XXXXXXXXXX.');
       return;
     }
-    // Demo-only local sign-in; replace with Firebase Auth or another secure identity provider.
-    appState.signedIn = true;
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PermissionsPage()));
+    setState(() => busy = true);
+    try {
+      await _auth.verifyPhoneNumber(
+        phoneNumber: number,
+        forceResendingToken: resendToken,
+        verificationCompleted: (credential) async {
+          try {
+            await _auth.signInWithCredential(credential);
+            await _enterApp();
+          } on FirebaseAuthException catch (e) {
+            _showMessage(_friendlyError(e));
+          }
+        },
+        verificationFailed: (e) => _showMessage(_friendlyError(e)),
+        codeSent: (id, token) {
+          if (!mounted) return;
+          setState(() {
+            verificationId = id;
+            resendToken = token;
+            codeSent = true;
+          });
+          _showMessage('OTP sent by SMS. Enter the 6-digit code.');
+        },
+        codeAutoRetrievalTimeout: (id) {
+          verificationId = id;
+        },
+      );
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_friendlyError(e));
+    } catch (e) {
+      _showMessage('Could not send OTP: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
-  @override Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: ConstrainedBox(
-    constraints: const BoxConstraints(maxWidth: 480), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      const Icon(Icons.health_and_safety_rounded, color: green, size: 76),
-      const Text('RESQ-MITRA', textAlign: TextAlign.center, style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: navy)),
-      const SizedBox(height: 8), Text(create ? 'Create your account' : 'Welcome back', textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 24),
-      TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email or phone number', prefixIcon: Icon(Icons.person_outline))),
-      const SizedBox(height: 14),
-      TextField(controller: password, obscureText: obscure, decoration: InputDecoration(labelText: 'Password (8+ characters)', prefixIcon: const Icon(Icons.lock_outline), suffixIcon: IconButton(icon: Icon(obscure ? Icons.visibility : Icons.visibility_off), onPressed: () => setState(() => obscure = !obscure)))),
-      const SizedBox(height: 20), FilledButton(onPressed: enter, style: FilledButton.styleFrom(padding: const EdgeInsets.all(16)), child: Text(create ? 'CREATE ACCOUNT' : 'LOGIN')),
-      TextButton(onPressed: () => setState(() => create = !create), child: Text(create ? 'Already registered? Log in' : 'New here? Create account')),
-      const SizedBox(height: 12), const Text('Prototype sign-in only. Use a secure authentication provider before deployment.', textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 12)),
-    ]))))));
+
+  Future<void> _verifyPhoneOtp() async {
+    final id = verificationId;
+    final code = otp.text.trim();
+    if (id == null || code.length != 6) {
+      _showMessage('Enter the 6-digit OTP from your SMS.');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: id,
+        smsCode: code,
+      );
+      await _auth.signInWithCredential(credential);
+      await _enterApp();
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_friendlyError(e));
+    } catch (e) {
+      _showMessage('Could not verify OTP: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _sendEmailLink() async {
+    final address = email.text.trim();
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(address)) {
+      _showMessage('Enter a valid email address.');
+      return;
+    }
+    if (emailContinueUrl.contains('YOUR_FIREBASE_PROJECT_ID')) {
+      _showMessage('Set emailContinueUrl in lib/main.dart to your Firebase project URL first.');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      await _auth.sendSignInLinkToEmail(
+        email: address,
+        actionCodeSettings: ActionCodeSettings(
+          url: emailContinueUrl,
+          handleCodeInApp: true,
+          androidPackageName: androidPackageName,
+          androidInstallApp: true,
+          androidMinimumVersion: '21',
+        ),
+      );
+      _showMessage('One-time sign-in link sent to $address. Open it on this device to finish signing in.');
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_friendlyError(e));
+    } catch (e) {
+      _showMessage('Could not send email sign-in link: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _completeEmailLink(String link) async {
+    if (!_auth.isSignInWithEmailLink(link)) return;
+    final address = email.text.trim();
+    if (address.isEmpty) {
+      _showMessage('Enter the same email address you used to request the sign-in link, then open the link again.');
+      return;
+    }
+    try {
+      await _auth.signInWithEmailLink(email: address, emailLink: link);
+      await _enterApp();
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_friendlyError(e));
+    } catch (e) {
+      _showMessage('Could not complete email sign-in: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(Icons.health_and_safety_rounded, color: green, size: 88),
+                    const Text('RESQ-MITRA', textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: navy)),
+                    const SizedBox(height: 8),
+                    const Text('Secure one-time sign in', textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 22),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: true, label: Text('Phone OTP'), icon: Icon(Icons.sms_outlined)),
+                        ButtonSegment(value: false, label: Text('Email link'), icon: Icon(Icons.email_outlined)),
+                      ],
+                      selected: {usePhone},
+                      onSelectionChanged: busy ? null : (selection) => setState(() {
+                        usePhone = selection.first;
+                        codeSent = false;
+                        verificationId = null;
+                        otp.clear();
+                      }),
+                    ),
+                    const SizedBox(height: 18),
+                    if (usePhone) ...[
+                      TextField(
+                        controller: phone,
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Phone number with country code',
+                          hintText: '+91XXXXXXXXXX',
+                          prefixIcon: Icon(Icons.phone_android, size: 28),
+                        ),
+                      ),
+                      if (codeSent) ...[
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: otp,
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                          decoration: const InputDecoration(
+                            labelText: '6-digit SMS OTP',
+                            prefixIcon: Icon(Icons.password, size: 28),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      FilledButton.icon(
+                        onPressed: busy ? null : (codeSent ? _verifyPhoneOtp : _sendPhoneOtp),
+                        style: FilledButton.styleFrom(padding: const EdgeInsets.all(18)),
+                        icon: busy
+                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.sms, size: 26),
+                        label: Text(busy ? 'PLEASE WAIT…' : (codeSent ? 'VERIFY OTP & LOGIN' : 'SEND SMS OTP'),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                      ),
+                      if (codeSent)
+                        TextButton(onPressed: busy ? null : _sendPhoneOtp, child: const Text('Resend OTP')),
+                    ] else ...[
+                      TextField(
+                        controller: email,
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Email address',
+                          prefixIcon: Icon(Icons.email_outlined, size: 28),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      FilledButton.icon(
+                        onPressed: busy ? null : _sendEmailLink,
+                        style: FilledButton.styleFrom(padding: const EdgeInsets.all(18)),
+                        icon: busy
+                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.mark_email_read_outlined, size: 26),
+                        label: Text(busy ? 'PLEASE WAIT…' : 'SEND ONE-TIME EMAIL LINK',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Firebase Authentication sends a secure sign-in link to your email. A numeric email OTP requires a separate trusted backend; Firebase Phone Authentication provides numeric SMS OTPs.',
+                          textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 12)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class PermissionsPage extends StatefulWidget {
@@ -284,16 +543,135 @@ class _HomePageState extends State<HomePage> {
       Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), gradient: const LinearGradient(colors: [Color(0xFFFFF0E2), Color(0xFFE8F8EE)])), child: Column(children: [
         const Text('HELP IS ONE TAP AWAY', style: TextStyle(color: navy, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
         const SizedBox(height: 20),
-        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SosTypesPage())), borderRadius: BorderRadius.circular(100), child: Container(width: 190, height: 190, decoration: BoxDecoration(shape: BoxShape.circle, color: red, boxShadow: [BoxShadow(color: red.withValues(alpha: .28), blurRadius: 28, spreadRadius: 5)]), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sos, color: Colors.white, size: 64), Text('SOS', style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900)), Text('GET HELP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
+        InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SosTypesPage())), borderRadius: BorderRadius.circular(100), child: Container(width: 224, height: 224, decoration: BoxDecoration(shape: BoxShape.circle, color: red, boxShadow: [BoxShadow(color: red.withValues(alpha: .28), blurRadius: 28, spreadRadius: 5)]), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sos, color: Colors.white, size: 82), Text('SOS', style: TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w900)), Text('GET HELP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
+        const SizedBox(height: 18),
+        SizedBox(width: double.infinity, child: FilledButton.icon(
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B0000), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+          onPressed: () async {
+            final draft = SosDraft()
+              ..category = 'HIGH ALERT SOS'
+              ..emergency = 'High Alert Emergency'
+              ..notes = 'HIGH ALERT: immediate assistance required.'
+              ..highAlert = true
+              ..videoRequested = true;
+            await appState.createSos(draft);
+            if (context.mounted) {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const HighAlertPage()));
+            }
+          },
+          icon: const Icon(Icons.warning_rounded, size: 36),
+          label: const Text('HIGH ALERT SOS', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+        )),
+        const SizedBox(height: 12), const Text('Use HIGH ALERT only when immediate, critical help is needed. It sends a critical-priority alert and opens a 10-second camera countdown.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF8B0000), fontWeight: FontWeight.w600)),
         const SizedBox(height: 16), const Text('Choose an emergency type. Share your location only with verified responders.', textAlign: TextAlign.center, style: TextStyle(color: navy)),
       ])),
       const SizedBox(height: 22), const Text('EMERGENCY HELPLINES', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: navy)),
       const SizedBox(height: 8),
-      ...helplines.map((h) => Card(child: ListTile(leading: CircleAvatar(backgroundColor: const Color(0xFFE1F5E8), child: Icon(h[2] as IconData, color: green)), title: Text(h[0] as String, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(h[1] as String), trailing: IconButton(icon: const Icon(Icons.call, color: green), onPressed: () => call(h[1] as String))))),
+      ...helplines.map((h) => Card(child: ListTile(leading: CircleAvatar(radius: 28, backgroundColor: const Color(0xFFE1F5E8), child: Icon(h[2] as IconData, color: green, size: 30)), title: Text(h[0] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)), subtitle: Text(h[1] as String), trailing: IconButton(iconSize: 30, icon: const Icon(Icons.call, color: green), onPressed: () => call(h[1] as String))))),
       const SizedBox(height: 8), OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderPage())), icon: const Icon(Icons.volunteer_activism), label: const Text('Switch to AS RESPONDER')),
       const SizedBox(height: 8), const Text('Emergency numbers can vary by location. Verify local numbers before relying on them.', style: TextStyle(fontSize: 12, color: Colors.black54)),
     ]),
   ));
+}
+
+class HighAlertPage extends StatefulWidget {
+  const HighAlertPage({super.key});
+  @override State<HighAlertPage> createState() => _HighAlertPageState();
+}
+
+class _HighAlertPageState extends State<HighAlertPage> {
+  Timer? _timer;
+  int _seconds = 10;
+  CameraController? _camera;
+  bool _cameraStarting = false;
+  String? _cameraMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_seconds <= 1) {
+        timer.cancel();
+        setState(() => _seconds = 0);
+        _startCamera();
+      } else {
+        setState(() => _seconds--);
+      }
+    });
+  }
+
+  Future<void> _startCamera() async {
+    if (_cameraStarting || _camera != null) return;
+    _cameraStarting = true;
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) throw StateError('No camera is available on this device.');
+      final selected = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+      final controller = CameraController(selected, ResolutionPreset.medium, enableAudio: false);
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _camera = controller;
+        _cameraMessage = 'Camera preview is active on this device.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _cameraMessage = 'Camera unavailable: $e');
+    } finally {
+      _cameraStarting = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _camera?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('HIGH ALERT SOS')),
+    body: ListView(padding: const EdgeInsets.all(18), children: [
+      Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: const Color(0xFFFFE5E5), borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFF8B0000), width: 2)), child: Column(children: [
+        const Icon(Icons.warning_rounded, size: 58, color: Color(0xFF8B0000)),
+        const Text('CRITICAL EMERGENCY', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF8B0000))),
+        const SizedBox(height: 8),
+        if (_seconds > 0) Text('Camera starts in $_seconds seconds', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        if (_seconds == 0) const Text('Countdown complete', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Text(appState.databaseStatus, textAlign: TextAlign.center),
+      ])),
+      const SizedBox(height: 16),
+      if (_camera != null && _camera!.value.isInitialized)
+        ClipRRect(borderRadius: BorderRadius.circular(16), child: AspectRatio(aspectRatio: _camera!.value.aspectRatio, child: CameraPreview(_camera!)))
+      else
+        Container(height: 220, decoration: BoxDecoration(color: navy, borderRadius: BorderRadius.circular(16)), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(_seconds > 0 ? Icons.timer : Icons.videocam_off, size: 56, color: Colors.white),
+          const SizedBox(height: 8),
+          Text(_seconds > 0 ? 'Camera will open automatically' : (_cameraMessage ?? 'Opening camera…'), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ])),
+      const SizedBox(height: 12),
+      const ListTile(leading: Icon(Icons.priority_high, color: Color(0xFF8B0000)), title: Text('Critical alert submitted'), subtitle: Text('Responders can see the high-priority request when Firebase and responder access are configured.')),
+      const ListTile(leading: Icon(Icons.videocam, color: navy), title: Text('Video streaming status'), subtitle: Text('This build opens a local camera preview only. Sending live video to remote responders requires a WebRTC/signaling and secure media backend, which is not configured in this starter.')),
+      const ListTile(leading: Icon(Icons.volume_off, color: navy), title: Text('Silent mode'), subtitle: Text('Android does not allow an app to force silent mode without special Do Not Disturb access. Set Silent/Do Not Disturb manually in Quick Settings if safe to do so.')),
+      const SizedBox(height: 8),
+      FilledButton.icon(style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B0000), padding: const EdgeInsets.all(15)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveSosPage())), icon: const Icon(Icons.sos), label: const Text('VIEW ACTIVE HIGH ALERT')),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(onPressed: () async {
+        await appState.cancelSos();
+        if (context.mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomePage()), (route) => false);
+      }, icon: const Icon(Icons.cancel_outlined), label: const Text('CANCEL ALERT')),
+      const SizedBox(height: 8),
+      const Text('If there is immediate danger, call the local emergency number as well. The app cannot guarantee responder arrival.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+    ]),
+  );
 }
 
 class SosTypesPage extends StatelessWidget {
@@ -305,20 +683,20 @@ class SosTypesPage extends StatelessWidget {
   ]));
   Widget _typeCard(BuildContext context, String title, String sub, Color color, IconData icon, List<Emergency> items) => Card(
     clipBehavior: Clip.antiAlias, child: InkWell(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyTypesPage(category: title, items: items, color: color))), child: Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: LinearGradient(colors: [color.withValues(alpha: .95), color.withValues(alpha: .72)])), child: Row(children: [
-      Icon(icon, color: Colors.white, size: 44), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)), Text(sub, style: const TextStyle(color: Colors.white))])), const Icon(Icons.chevron_right, color: Colors.white, size: 32),
+      Icon(icon, color: Colors.white, size: 58), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w900)), Text(sub, style: const TextStyle(color: Colors.white))])), const Icon(Icons.chevron_right, color: Colors.white, size: 32),
     ]))));
 }
 
 class EmergencyTypesPage extends StatelessWidget {
   final String category; final List<Emergency> items; final Color color;
   const EmergencyTypesPage({super.key, required this.category, required this.items, required this.color});
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text(category)), body: GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.08), itemCount: items.length, itemBuilder: (context, i) {
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: Text(category)), body: GridView.builder(padding: const EdgeInsets.all(14), gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.92), itemCount: items.length, itemBuilder: (context, i) {
     final e = items[i];
     return Card(color: e.color, child: InkWell(borderRadius: BorderRadius.circular(16), onTap: () {
       final draft = SosDraft()..category = category..emergency = e.name;
       Navigator.push(context, MaterialPageRoute(builder: (_) => ConfirmSosPage(draft: draft)));
-    }, child: Padding(padding: const EdgeInsets.all(10), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(e.icon, style: const TextStyle(fontSize: 34)), const SizedBox(height: 8), Text(e.name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, color: navy)), const SizedBox(height: 4), const Icon(Icons.arrow_forward_rounded, color: navy, size: 18),
+    }, child: Padding(padding: const EdgeInsets.all(14), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Text(e.icon, style: const TextStyle(fontSize: 46)), const SizedBox(height: 10), Text(e.name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: navy)), const SizedBox(height: 6), const Icon(Icons.arrow_forward_rounded, color: navy, size: 24),
     ]))));
   }));
 }
@@ -430,9 +808,10 @@ class ResponderPage extends StatelessWidget {
             final data = doc.data();
             final loc = data['location'] as Map<String, dynamic>?;
             final distanceText = loc == null ? 'Location unavailable' : 'Location: ${loc['latitude']}, ${loc['longitude']}';
-            return Card(child: ListTile(
-              leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E9), child: Icon(Icons.sos, color: red)),
-              title: Text('${data['emergencyType'] ?? 'Emergency'}'),
+            final highAlert = data['highAlert'] == true || data['category'] == 'HIGH ALERT SOS';
+            return Card(color: highAlert ? const Color(0xFFFFE5E5) : null, child: ListTile(
+              leading: CircleAvatar(backgroundColor: highAlert ? const Color(0xFF8B0000) : const Color(0xFFFFE4E9), child: Icon(highAlert ? Icons.warning_rounded : Icons.sos, color: highAlert ? Colors.white : red)),
+              title: Text(highAlert ? '🚨 HIGH ALERT — ${data['emergencyType'] ?? 'Emergency'}' : '${data['emergencyType'] ?? 'Emergency'}', style: TextStyle(fontWeight: highAlert ? FontWeight.w900 : FontWeight.normal, color: highAlert ? const Color(0xFF8B0000) : null)),
               subtitle: Text('${data['category'] ?? 'SOS'} • ${data['urgency'] ?? 'normal'}\n$distanceText\n${data['instructions'] ?? ''}'),
               isThreeLine: true,
               trailing: FilledButton(onPressed: () async {

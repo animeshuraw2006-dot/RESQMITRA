@@ -56,3 +56,18 @@ flutter build apk --debug
 ```
 
 The workflow can build a debug APK without a Firebase project configured. Live Firebase functionality still requires the setup described in `docs/FIREBASE_SETUP.md`.
+
+
+## HIGH ALERT SOS (important limitations)
+
+The home screen includes a blood-red HIGH ALERT SOS button. It creates a critical-priority SOS record (when Firebase is configured), opens a 10-second countdown page, and then attempts to open the device camera preview. The camera preview remains on the user's device in this starter. **Live video is not broadcast to responders**: that requires a secured WebRTC/media service, signaling, responder-side viewing, access control, and retention policy. Do not describe this build as streaming video.
+
+Android does not permit apps to force silent/Do Not Disturb mode on all devices without special notification-policy access. This starter explains that limitation rather than changing sound settings without explicit platform setup. The user can enable Silent/Do Not Disturb from Android Quick Settings. The countdown page has a cancel action.
+
+The `camera` package is included for local camera preview. Test camera permission, lifecycle, and behavior on real Android devices before deployment. For production, configure the secure video service and verify responders before sending any media.
+
+## Authentication update
+
+The login screen now supports Firebase SMS OTP sign-in by phone and passwordless email sign-in links. Firebase Phone Authentication does not itself send numeric OTP codes to email; numeric email OTP requires a trusted backend. See `docs/FIREBASE_SETUP.md` for Firebase Console setup, SHA fingerprints, and Android App Links configuration. Replace the email URL placeholder in `lib/main.dart` with your Firebase project's domain before testing email sign-in.
+
+The SOS home button, HIGH ALERT SOS action, emergency-category icons, and emergency-type option tiles have been enlarged for easier use.
