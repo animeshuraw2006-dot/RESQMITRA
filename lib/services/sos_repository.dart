@@ -22,6 +22,7 @@ class SosRepository {
     required bool doNotCall,
     required String bloodGroup,
     required bool audioRequested,
+    String? audioUrl,
     bool highAlert = false,
     bool videoRequested = false,
     required double? latitude,
@@ -43,9 +44,9 @@ class SosRepository {
       'instructions': instructions,
       'doNotCall': doNotCall,
       'bloodGroup': bloodGroup,
-      // This is only a flag. Audio bytes are not recorded or uploaded by this starter.
       'audioRequested': audioRequested,
-      'audioObjectPath': null,
+      'audioUrl': audioUrl,
+      'audioObjectPath': audioUrl == null ? null : 'uploaded',
       'location': latitude == null || longitude == null
           ? null
           : {

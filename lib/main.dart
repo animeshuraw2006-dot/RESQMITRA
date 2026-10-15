@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'dart:io';
 import 'services/sos_repository.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -10,18 +15,23 @@ import 'package:camera/camera.dart';
 import 'package:app_links/app_links.dart';
 import 'dart:async';
 
+bool firebaseReady = false;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Firebase is enabled after adding Android Firebase config (google-services.json).
-  // The app remains navigable in demo mode if Firebase has not been configured.
   try {
     await Firebase.initializeApp();
+    firebaseReady = true;
     FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
-    if (FirebaseAuth.instance.currentUser == null) {
-      await FirebaseAuth.instance.signInAnonymously();
+    try {
+      if (FirebaseAuth.instance.currentUser == null) {
+        await FirebaseAuth.instance.signInAnonymously();
+      }
+    } on FirebaseAuthException {
+      // Email-link authentication remains available even if anonymous auth is disabled.
     }
   } catch (_) {
-    // Missing Firebase platform configuration is expected until setup is completed.
+    firebaseReady = false;
   }
   runApp(const ResqMitraApp());
 }
@@ -53,8 +63,26 @@ class ResqMitraApp extends StatelessWidget {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
-        home: const SplashPage(),
+        home: firebaseReady ? const SplashPage() : const FirebaseSetupPage(),
       );
+}
+
+
+class FirebaseSetupPage extends StatelessWidget {
+  const FirebaseSetupPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(child: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: const [
+        Icon(Icons.cloud_off, size: 72, color: red),
+        SizedBox(height: 16),
+        Text('Cloud service not configured', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: navy)),
+        SizedBox(height: 12),
+        Text('RESQ-MITRA needs a Firebase project configuration to authenticate users, submit SOS requests, and store voice recordings. Add the correct Android google-services.json and configure Firebase for this app, then rebuild.', textAlign: TextAlign.center),
+      ],
+    )))),
+  );
 }
 
 class Emergency {
@@ -104,6 +132,7 @@ class SosDraft {
   String blood = 'Any blood group';
   bool doNotCall = false;
   bool recordingRequested = false;
+  String? audioLocalPath;
   bool highAlert = false;
   bool videoRequested = false;
 }
@@ -112,12 +141,10 @@ class AppState extends ChangeNotifier {
   bool signedIn = false;
   bool responderMode = false;
   SosDraft? active;
-  final List<Map<String, String>> demoRequests = [];
   String? activeRequestId;
-  String databaseStatus = 'Local demo only';
+  String databaseStatus = 'Not submitted';
   Future<void> createSos(SosDraft draft) async {
     active = draft;
-    demoRequests.insert(0, {'type': draft.category, 'emergency': draft.emergency, 'status': 'Pending'});
     notifyListeners();
     double? lat, lng, accuracy;
     try {
@@ -133,6 +160,15 @@ class AppState extends ChangeNotifier {
       }
     } catch (_) {}
     try {
+      String? audioUrl;
+      final localAudioPath = draft.audioLocalPath;
+      if (localAudioPath != null && Firebase.apps.isNotEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid == null) throw StateError('Sign in is required to upload emergency audio.');
+        final audioRef = FirebaseStorage.instance.ref('sos-audio/$uid/${DateTime.now().millisecondsSinceEpoch}.m4a');
+        await audioRef.putFile(File(localAudioPath), SettableMetadata(contentType: 'audio/mp4'));
+        audioUrl = await audioRef.getDownloadURL();
+      }
       final id = await SosRepository.instance.createRequest(
         category: draft.category,
         emergencyType: draft.emergency,
@@ -140,18 +176,19 @@ class AppState extends ChangeNotifier {
         doNotCall: draft.doNotCall,
         bloodGroup: draft.blood,
         audioRequested: draft.recordingRequested,
+        audioUrl: audioUrl,
         highAlert: draft.highAlert,
         videoRequested: draft.videoRequested,
         latitude: lat,
         longitude: lng,
         accuracyMeters: accuracy,
         // Use the current Firebase Auth UID for request ownership.
-        requesterId: FirebaseAuth.instance.currentUser?.uid ?? 'demo-anonymous-user',
+        requesterId: FirebaseAuth.instance.currentUser?.uid ?? (throw StateError('Sign in to submit an SOS request.')),
       );
       activeRequestId = id;
-      databaseStatus = id == null ? 'Local demo only — Firebase not configured' : 'Saved to live database';
+      databaseStatus = id == null ? 'SOS could not be submitted: Firebase is not configured.' : 'SOS submitted successfully';
     } catch (_) {
-      databaseStatus = 'Database save failed — local demo only';
+      databaseStatus = 'SOS submission failed. Check your connection and try again.';
     }
     notifyListeners();
   }
@@ -200,16 +237,10 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> {
   final email = TextEditingController();
-  final phone = TextEditingController();
-  final otp = TextEditingController();
   final _auth = FirebaseAuth.instance;
   final _appLinks = AppLinks();
   StreamSubscription<Uri>? _linkSubscription;
-  bool usePhone = true;
-  bool codeSent = false;
   bool busy = false;
-  String? verificationId;
-  int? resendToken;
 
   // Replace YOUR_FIREBASE_PROJECT_ID with the Firebase project's Hosting/auth domain.
   static const emailContinueUrl =
@@ -234,8 +265,6 @@ class _AuthPageState extends State<AuthPage> {
   void dispose() {
     _linkSubscription?.cancel();
     email.dispose();
-    phone.dispose();
-    otp.dispose();
     super.dispose();
   }
 
@@ -255,88 +284,6 @@ class _AuthPageState extends State<AuthPage> {
       context,
       MaterialPageRoute(builder: (_) => const PermissionsPage()),
     );
-  }
-
-  String _friendlyError(FirebaseAuthException e) => switch (e.code) {
-        'invalid-phone-number' => 'Enter a valid phone number with country code, e.g. +91…',
-        'invalid-verification-code' => 'That OTP is incorrect. Check the SMS and try again.',
-        'session-expired' => 'The OTP expired. Please request a new code.',
-        'too-many-requests' => 'Too many attempts. Please wait before trying again.',
-        'quota-exceeded' => 'Firebase SMS quota exceeded. Check your Firebase billing and limits.',
-        'operation-not-allowed' => 'Enable this sign-in method in Firebase Console → Authentication.',
-        _ => e.message ?? 'Authentication failed. Please try again.',
-      };
-
-  Future<void> _sendPhoneOtp() async {
-    final number = phone.text.trim();
-    if (!number.startsWith('+') || number.length < 8) {
-      _showMessage('Enter your phone number with country code, e.g. +91XXXXXXXXXX.');
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      await _auth.verifyPhoneNumber(
-        phoneNumber: number,
-        forceResendingToken: resendToken,
-        verificationCompleted: (credential) async {
-          try {
-            await _auth.signInWithCredential(credential);
-            await _enterApp();
-          } on FirebaseAuthException catch (e) {
-            _showMessage(_friendlyError(e));
-          }
-        },
-        verificationFailed: (e) => _showMessage(_friendlyError(e)),
-        codeSent: (id, token) {
-          if (!mounted) {
-      return;
-    }
-          setState(() {
-            verificationId = id;
-            resendToken = token;
-            codeSent = true;
-          });
-          _showMessage('OTP sent by SMS. Enter the 6-digit code.');
-        },
-        codeAutoRetrievalTimeout: (id) {
-          verificationId = id;
-        },
-      );
-    } on FirebaseAuthException catch (e) {
-      _showMessage(_friendlyError(e));
-    } catch (e) {
-      _showMessage('Could not send OTP: $e');
-    } finally {
-      if (mounted) {
-        setState(() => busy = false);
-      }
-    }
-  }
-
-  Future<void> _verifyPhoneOtp() async {
-    final id = verificationId;
-    final code = otp.text.trim();
-    if (id == null || code.length != 6) {
-      _showMessage('Enter the 6-digit OTP from your SMS.');
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: id,
-        smsCode: code,
-      );
-      await _auth.signInWithCredential(credential);
-      await _enterApp();
-    } on FirebaseAuthException catch (e) {
-      _showMessage(_friendlyError(e));
-    } catch (e) {
-      _showMessage('Could not verify OTP: $e');
-    } finally {
-      if (mounted) {
-        setState(() => busy = false);
-      }
-    }
   }
 
   Future<void> _sendEmailLink() async {
@@ -410,56 +357,6 @@ class _AuthPageState extends State<AuthPage> {
                     const Text('Secure one-time sign in', textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 22),
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(value: true, label: Text('Phone OTP'), icon: Icon(Icons.sms_outlined)),
-                        ButtonSegment(value: false, label: Text('Email link'), icon: Icon(Icons.email_outlined)),
-                      ],
-                      selected: {usePhone},
-                      onSelectionChanged: busy ? null : (selection) => setState(() {
-                        usePhone = selection.first;
-                        codeSent = false;
-                        verificationId = null;
-                        otp.clear();
-                      }),
-                    ),
-                    const SizedBox(height: 18),
-                    if (usePhone) ...[
-                      TextField(
-                        controller: phone,
-                        keyboardType: TextInputType.phone,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone number with country code',
-                          hintText: '+91XXXXXXXXXX',
-                          prefixIcon: Icon(Icons.phone_android, size: 28),
-                        ),
-                      ),
-                      if (codeSent) ...[
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: otp,
-                          keyboardType: TextInputType.number,
-                          maxLength: 6,
-                          decoration: const InputDecoration(
-                            labelText: '6-digit SMS OTP',
-                            prefixIcon: Icon(Icons.password, size: 28),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      FilledButton.icon(
-                        onPressed: busy ? null : (codeSent ? _verifyPhoneOtp : _sendPhoneOtp),
-                        style: FilledButton.styleFrom(padding: const EdgeInsets.all(18)),
-                        icon: busy
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.sms, size: 26),
-                        label: Text(busy ? 'PLEASE WAIT…' : (codeSent ? 'VERIFY OTP & LOGIN' : 'SEND SMS OTP'),
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-                      ),
-                      if (codeSent)
-                        TextButton(onPressed: busy ? null : _sendPhoneOtp, child: const Text('Resend OTP')),
-                    ] else ...[
                       TextField(
                         controller: email,
                         keyboardType: TextInputType.emailAddress,
@@ -480,9 +377,8 @@ class _AuthPageState extends State<AuthPage> {
                             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                       ),
                       const SizedBox(height: 8),
-                      const Text('Firebase Authentication sends a secure sign-in link to your email. A numeric email OTP requires a separate trusted backend; Firebase Phone Authentication provides numeric SMS OTPs.',
+                      const Text('Sign in securely using the email link sent to your inbox.',
                           textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 12)),
-                    ],
                   ],
                 ),
               ),
@@ -683,7 +579,7 @@ class _HighAlertPageState extends State<HighAlertPage> {
         ])),
       const SizedBox(height: 12),
       const ListTile(leading: Icon(Icons.priority_high, color: Color(0xFF8B0000)), title: Text('Critical alert submitted'), subtitle: Text('Responders can see the high-priority request when Firebase and responder access are configured.')),
-      const ListTile(leading: Icon(Icons.videocam, color: navy), title: Text('Video streaming status'), subtitle: Text('This build opens a local camera preview only. Sending live video to remote responders requires a WebRTC/signaling and secure media backend, which is not configured in this starter.')),
+      const ListTile(leading: Icon(Icons.videocam, color: navy), title: Text('Video streaming status'), subtitle: Text('This screen provides a local camera preview. Remote live video requires a configured secure WebRTC media service.')),
       const ListTile(leading: Icon(Icons.volume_off, color: navy), title: Text('Silent mode'), subtitle: Text('Android does not allow an app to force silent mode without special Do Not Disturb access. Set Silent/Do Not Disturb manually in Quick Settings if safe to do so.')),
       const SizedBox(height: 8),
       FilledButton.icon(style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B0000), padding: const EdgeInsets.all(15)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ActiveSosPage())), icon: const Icon(Icons.sos), label: const Text('VIEW ACTIVE HIGH ALERT')),
@@ -738,8 +634,25 @@ class ConfirmSosPage extends StatefulWidget {
 }
 class _ConfirmSosPageState extends State<ConfirmSosPage> {
   final notes = TextEditingController();
+  final AudioRecorder _recorder = AudioRecorder();
   bool recording = false;
-  @override void dispose() { notes.dispose(); super.dispose(); }
+  String? audioPath;
+  String audioStatus = 'Optional voice recording';
+  @override void dispose() { notes.dispose(); _recorder.dispose(); super.dispose(); }
+  Future<void> _toggleRecording() async {
+    try {
+      if (recording) {
+        audioPath = await _recorder.stop();
+        setState(() { recording = false; audioStatus = audioPath == null ? 'Recording not saved' : 'Voice recording ready to upload with SOS'; });
+      } else {
+        if (!await _recorder.hasPermission()) { setState(() => audioStatus = 'Microphone permission is required'); return; }
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/resq_sos_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+        setState(() { recording = true; audioStatus = 'Recording in progress… tap stop when finished'; });
+      }
+    } catch (e) { setState(() => audioStatus = 'Recording error: $e'); }
+  }
   @override Widget build(BuildContext context) {
     final d = widget.draft;
     final bloodNeeded = d.emergency == 'Blood Needed';
@@ -748,7 +661,7 @@ class _ConfirmSosPageState extends State<ConfirmSosPage> {
       Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(d.category.toUpperCase(), style: TextStyle(color: d.category == 'General SOS' ? blue : d.category == 'Women SOS' ? pink : const Color(0xFFB18B00), fontWeight: FontWeight.w900)),
         const SizedBox(height: 6), Text(d.emergency, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: navy)),
-        const SizedBox(height: 8), const Text('Your location will be attached when permission is available. In this starter app, alerts are not sent to real responders.', style: TextStyle(color: Colors.black54)),
+        const SizedBox(height: 8), const Text('Your location and any voice recording will be attached to the SOS request when permissions and cloud services are configured.', style: TextStyle(color: Colors.black54)),
       ])),
       const SizedBox(height: 18),
       if (bloodNeeded) ...[
@@ -762,15 +675,16 @@ class _ConfirmSosPageState extends State<ConfirmSosPage> {
       TextField(controller: notes, maxLines: 4, decoration: const InputDecoration(hintText: 'Describe the situation, exact landmark, injuries, or special instructions…')),
       const SizedBox(height: 14),
       Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)), child: Column(children: [
-        IconButton.filledTonal(onPressed: () => setState(() => recording = !recording), icon: Icon(recording ? Icons.stop_circle : Icons.mic), iconSize: 38),
-        Text(recording ? 'Recording UI demo — audio is not being recorded' : 'Voice note (demo control)', style: const TextStyle(fontWeight: FontWeight.bold)),
-        const Text('Real recording and secure upload require an audio-recorder plugin and backend.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
+        IconButton.filledTonal(onPressed: _toggleRecording, icon: Icon(recording ? Icons.stop_circle : Icons.mic), iconSize: 38),
+        Text(recording ? 'Recording voice…' : audioStatus, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        const Text('The recording is uploaded to Firebase Storage with the SOS request when cloud configuration and permissions are valid.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
       ])),
       if (sensitive) CheckboxListTile(value: d.doNotCall, onChanged: (v) => setState(() => d.doNotCall = v ?? false), contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading, title: const Text('DO NOT CALL', style: TextStyle(fontWeight: FontWeight.w900, color: pink)), subtitle: const Text('Please communicate by text / app only if it is safer.')),
       const SizedBox(height: 18),
       FilledButton.icon(style: FilledButton.styleFrom(backgroundColor: red, padding: const EdgeInsets.all(16)), onPressed: () {
         d.notes = notes.text;
-        d.recordingRequested = recording;
+        d.recordingRequested = audioPath != null;
+        d.audioLocalPath = audioPath;
         appState.createSos(d);
         Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const ActiveSosPage()), (route) => route.isFirst);
       }, icon: const Icon(Icons.sos), label: const Text('CONFIRM SOS')),
@@ -785,7 +699,7 @@ class ActiveSosPage extends StatelessWidget {
     final d = appState.active;
     return Scaffold(appBar: AppBar(title: const Text('Active SOS')), body: ListView(padding: const EdgeInsets.all(18), children: [
       Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: const Color(0xFFFFE7E9), borderRadius: BorderRadius.circular(18)), child: Column(children: [
-        const Icon(Icons.sos, color: red, size: 54), const Text('SOS ACTIVE — DEMO', style: TextStyle(color: red, fontSize: 22, fontWeight: FontWeight.w900)),
+        const Icon(Icons.sos, color: red, size: 54), const Text('SOS ACTIVE', style: TextStyle(color: red, fontSize: 22, fontWeight: FontWeight.w900)),
         if (d != null) Text('${d.category} • ${d.emergency}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6), Text(appState.databaseStatus, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6), const Text('Live responder dispatch still requires verified accounts and server-side notification delivery. Call local emergency services if you need immediate help.', textAlign: TextAlign.center),
@@ -795,10 +709,10 @@ class ActiveSosPage extends StatelessWidget {
         Icon(Icons.map_outlined, size: 66, color: green), Text('MAP PREVIEW', style: TextStyle(fontWeight: FontWeight.w900, color: navy)), SizedBox(height: 6), Text('Live map and responder positions require map API + backend', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
       ])),
       const SizedBox(height: 12),
-      if (d != null && d.doNotCall) const ListTile(leading: Icon(Icons.do_not_disturb_on, color: pink), title: Text('DO NOT CALL enabled'), subtitle: Text('Preference retained in this local demo.')),
+      if (d != null && d.doNotCall) const ListTile(leading: Icon(Icons.do_not_disturb_on, color: pink), title: Text('DO NOT CALL enabled'), subtitle: Text('Please communicate through the app if safer.')),
       if (d != null && d.notes.isNotEmpty) ListTile(leading: const Icon(Icons.notes), title: const Text('Your instructions'), subtitle: Text(d.notes)),
       const SizedBox(height: 14),
-      FilledButton(style: FilledButton.styleFrom(backgroundColor: navy, padding: const EdgeInsets.all(15)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderPage())), child: const Text('VIEW RESPONDER QUEUE (DEMO)')),
+      FilledButton(style: FilledButton.styleFrom(backgroundColor: navy, padding: const EdgeInsets.all(15)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderPage())), child: const Text('VIEW RESPONDER QUEUE')),
       const SizedBox(height: 8), OutlinedButton(onPressed: () { appState.cancelSos(); Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomePage()), (r) => false); }, child: const Text('CANCEL SOS')),
       OutlinedButton.icon(onPressed: () { appState.cancelSos(); Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const SafePage()), (r) => false); }, icon: const Icon(Icons.check_circle, color: green), label: const Text('I AM SAFE')),
     ]));
@@ -808,12 +722,23 @@ class ActiveSosPage extends StatelessWidget {
 class SafePage extends StatelessWidget {
   const SafePage({super.key});
   @override Widget build(BuildContext context) => Scaffold(body: Center(child: Padding(padding: const EdgeInsets.all(28), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-    const Icon(Icons.verified_user, size: 90, color: green), const SizedBox(height: 16), const Text('Glad you are safe', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: navy)), const SizedBox(height: 8), const Text('This only closes the local demo SOS. In a production app, accepted responders and emergency contacts must receive the safe status update.', textAlign: TextAlign.center), const SizedBox(height: 22), FilledButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomePage()), (r) => false), child: const Text('BACK TO HOME')),
+    const Icon(Icons.verified_user, size: 90, color: green), const SizedBox(height: 16), const Text('Glad you are safe', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: navy)), const SizedBox(height: 8), const Text('Your safe status will be shared with the service when the SOS request is connected to the live backend.', textAlign: TextAlign.center), const SizedBox(height: 22), FilledButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomePage()), (r) => false), child: const Text('BACK TO HOME')),
   ]))));
 }
 
-class ResponderPage extends StatelessWidget {
+class ResponderPage extends StatefulWidget {
   const ResponderPage({super.key});
+  @override State<ResponderPage> createState() => _ResponderPageState();
+}
+class _ResponderPageState extends State<ResponderPage> {
+  final AudioPlayer _siren = AudioPlayer();
+  final AudioPlayer _voicePlayer = AudioPlayer();
+  final Set<String> _seenPendingIds = <String>{};
+  bool _sirenReady = false;
+  @override void initState() { super.initState(); _siren.setReleaseMode(ReleaseMode.stop); _sirenReady = true; }
+  @override void dispose() { _siren.dispose(); _voicePlayer.dispose(); super.dispose(); }
+  Future<void> _playVoice(String url) async { try { await _voicePlayer.stop(); await _voicePlayer.play(UrlSource(url)); } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not play the attached voice recording.'))); } }
+  Future<void> _playSiren() async { if (!_sirenReady) return; try { await _siren.stop(); await _siren.play(AssetSource('responder_siren.ogg')); } catch (_) {} }
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('AS RESPONDER'), actions: [IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderMapPage())), icon: const Icon(Icons.map))]), body: ListView(padding: const EdgeInsets.all(18), children: [
     Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF073B65), Color(0xFF078442)]), borderRadius: BorderRadius.circular(20)), child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Icon(Icons.volunteer_activism, color: Colors.white, size: 40), SizedBox(height: 10), Text('Be the help someone needs.', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)), Text('Accept nearby requests only if you are trained and can respond safely.', style: TextStyle(color: Colors.white)),
@@ -831,6 +756,9 @@ class ResponderPage extends StatelessWidget {
             return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()));
           }
           final docs = snapshot.data!.docs;
+          final newPending = docs.where((doc) => (doc.data()['status'] == 'pending') && !_seenPendingIds.contains(doc.id)).toList();
+          for (final doc in docs) { _seenPendingIds.add(doc.id); }
+          if (newPending.isNotEmpty) { WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _playSiren(); }); }
           if (docs.isEmpty) {
             return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No active SOS requests.')));
           }
@@ -844,18 +772,22 @@ class ResponderPage extends StatelessWidget {
               title: Text(highAlert ? '🚨 HIGH ALERT — ${data['emergencyType'] ?? 'Emergency'}' : '${data['emergencyType'] ?? 'Emergency'}', style: TextStyle(fontWeight: highAlert ? FontWeight.w900 : FontWeight.normal, color: highAlert ? const Color(0xFF8B0000) : null)),
               subtitle: Text('${data['category'] ?? 'SOS'} • ${data['urgency'] ?? 'normal'}\n$distanceText\n${data['instructions'] ?? ''}'),
               isThreeLine: true,
-              trailing: FilledButton(onPressed: () async {
-                try {
-                  await SosRepository.instance.updateStatus(doc.id, 'accepted');
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request marked accepted in Firestore. Add verified responder authentication before production.')));
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (data['audioUrl'] is String && (data['audioUrl'] as String).isNotEmpty)
+                  IconButton(tooltip: 'Play attached voice recording', onPressed: () => _playVoice(data['audioUrl'] as String), icon: const Icon(Icons.play_circle_fill, color: green)),
+                FilledButton(onPressed: () async {
+                  try {
+                    await SosRepository.instance.updateStatus(doc.id, 'accepted');
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request accepted.')));
+                    }
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not accept request. Check database rules.')));
+                    }
                   }
-                } catch (_) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not accept request. Check database rules.')));
-                  }
-                }
-              }, child: const Text('ACCEPT')),
+                }, child: const Text('ACCEPT')),
+              ]),
             ));
           }).toList());
         },
@@ -864,9 +796,9 @@ class ResponderPage extends StatelessWidget {
       AnimatedBuilder(animation: appState, builder: (context, _) {
         final active = appState.active;
         if (active == null) {
-          return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No local demo requests. Configure Firebase to share SOS requests across devices.')));
+          return const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('No active SOS requests. Requests appear here when Firebase is configured and a request is received.')));
         }
-        return Card(child: ListTile(leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E9), child: Icon(Icons.sos, color: red)), title: Text(active.emergency), subtitle: Text('${active.category} • local demo only'), trailing: const Text('DEMO')));
+        return Card(child: ListTile(leading: const CircleAvatar(backgroundColor: Color(0xFFFFE4E9), child: Icon(Icons.sos, color: red)), title: Text(active.emergency), subtitle: Text(active.category)));
       }),
     const SizedBox(height: 14), OutlinedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ResponderMapPage())), icon: const Icon(Icons.map_outlined), label: const Text('OPEN RESPONDER MAP')),
     const SizedBox(height: 8), const Text('Responder identity verification, proximity filtering, dispatch and acceptance locking must be implemented server-side.', style: TextStyle(fontSize: 12, color: Colors.black54)),
@@ -894,7 +826,7 @@ class _ResponderMapPageState extends State<ResponderMapPage> {
   }
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Responder map')), body: Padding(padding: const EdgeInsets.all(18), child: Column(children: [
     Expanded(child: Container(width: double.infinity, decoration: BoxDecoration(color: const Color(0xFFDDEFE7), borderRadius: BorderRadius.circular(20)), child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.map, size: 70, color: green), SizedBox(height: 10), Text('MAP PLACEHOLDER', style: TextStyle(fontWeight: FontWeight.w900, color: navy)), Padding(padding: EdgeInsets.all(18), child: Text('Connect Google Maps or OpenStreetMap tiles and a verified help-centre dataset to display real markers.', textAlign: TextAlign.center)),
+      Icon(Icons.map, size: 70, color: green), SizedBox(height: 10), Text('MAP SERVICE NOT CONFIGURED', style: TextStyle(fontWeight: FontWeight.w900, color: navy)), Padding(padding: EdgeInsets.all(18), child: Text('Connect Google Maps or OpenStreetMap tiles and a verified help-centre dataset to display real markers.', textAlign: TextAlign.center)),
     ]))),
     const SizedBox(height: 14), Text(status, textAlign: TextAlign.center), const SizedBox(height: 8), FilledButton.icon(onPressed: locate, icon: const Icon(Icons.my_location), label: const Text('GET MY LOCATION')),
   ])));

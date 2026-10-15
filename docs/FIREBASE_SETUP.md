@@ -75,3 +75,12 @@ Before testing email sign-in links:
 The source uses the package ID `com.resqmitra.resq_mitra` by default; if you change the Android application ID, update `androidPackageName` in `lib/main.dart` to match. Review current platform requirements in the official guides:
 - https://firebase.google.com/docs/auth/flutter/phone-auth
 - https://firebase.google.com/docs/auth/flutter/email-link-auth
+
+## Voice recordings and responder alert sound
+
+- Enable Firebase Storage for the same Firebase project and deploy `storage.rules` with `firebase deploy --only storage`.
+- Deploy Firestore rules and indexes as described above. The rules intentionally restrict SOS visibility and acceptance to accounts with a server-created `responders/{uid}` document whose `verified` and `active` fields are `true`. Do not allow users to self-verify.
+- The confirmation page records AAC/M4A audio locally. When SOS is submitted, the recording is uploaded to `sos-audio/{uid}/...` and its download URL is attached to the Firestore SOS request; responders can play it from the request card.
+- The attached `assets/responder_siren.ogg` sound plays on the responder screen when pending SOS requests appear. Android notification/background alerts require a separate notification channel and a trusted push-notification sender; this in-app siren is not guaranteed to play while the app is backgrounded or closed.
+- Configure Firebase Phone Authentication is not required for this login screen; the login screen uses Firebase email sign-in links only. Set `emailContinueUrl` in `lib/main.dart` to the real Firebase project's authorized email-link URL and configure Android App Links.
+- Before production, narrow Storage reads to verified responders via trusted backend/custom claims. The included storage rule permits authenticated reads so that responder audio playback can work after sign-in; it is not sufficient as the final authorization model for a public emergency service.

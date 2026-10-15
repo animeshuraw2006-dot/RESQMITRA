@@ -71,3 +71,10 @@ The `camera` package is included for local camera preview. Test camera permissio
 The login screen now supports Firebase SMS OTP sign-in by phone and passwordless email sign-in links. Firebase Phone Authentication does not itself send numeric OTP codes to email; numeric email OTP requires a trusted backend. See `docs/FIREBASE_SETUP.md` for Firebase Console setup, SHA fingerprints, and Android App Links configuration. Replace the email URL placeholder in `lib/main.dart` with your Firebase project's domain before testing email sign-in.
 
 The SOS home button, HIGH ALERT SOS action, emergency-category icons, and emergency-type option tiles have been enlarged for easier use.
+
+
+## Voice recordings and responder siren
+
+The SOS confirmation screen can record an optional voice note. When Firebase Storage is configured and the user is authenticated, the file is uploaded with the SOS request and responders can play the attached recording. The responder page plays the included siren sound when pending requests appear while that page is open. Deploy both Firestore and Storage rules and configure verified responder accounts before use. See `docs/FIREBASE_SETUP.md`.
+
+Phone OTP has been removed from the login screen; sign-in is by Firebase email link. Firebase project configuration is required: the app intentionally shows a setup message rather than opening Firebase-dependent screens if initialization fails.
