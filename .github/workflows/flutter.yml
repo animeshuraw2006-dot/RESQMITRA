@@ -1,55 +1,21 @@
 name: Flutter CI
-
 on:
   push:
   pull_request:
   workflow_dispatch:
-
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
-
-      # The source ZIP intentionally omits generated platform folders.
-      # Create Android Gradle files before any build command needs them.
-      - name: Generate Android platform files
-        shell: bash
-        run: |
-          if [[ ! -f android/app/build.gradle && ! -f android/app/build.gradle.kts ]]; then
-            flutter create --platforms=android --org com.resqmitra --project-name resq_mitra .
-          fi
-          if [[ ! -f android/app/build.gradle && ! -f android/app/build.gradle.kts ]]; then
-            echo "::error::Flutter did not generate android/app/build.gradle or build.gradle.kts"
-            exit 1
-          fi
-          echo "Android Gradle project is present."
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Format Dart
-        run: dart format lib
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Build debug APK
-        run: flutter build apk --debug
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - run: flutter pub get
+      - run: dart format lib
+      - run: flutter analyze
+      - run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
         with:
           name: resq-mitra-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error

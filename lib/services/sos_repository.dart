@@ -22,9 +22,6 @@ class SosRepository {
     required bool doNotCall,
     required String bloodGroup,
     required bool audioRequested,
-    String? audioUrl,
-    bool highAlert = false,
-    bool videoRequested = false,
     required double? latitude,
     required double? longitude,
     required double? accuracyMeters,
@@ -36,17 +33,13 @@ class SosRepository {
       'requesterId': requesterId,
       'category': category,
       'emergencyType': emergencyType,
-      'urgency': highAlert ? 'critical' : _urgency(category, emergencyType),
-      'highAlert': highAlert,
-      'videoRequested': videoRequested,
-      'videoStatus': videoRequested ? 'backend_required' : 'not_requested',
-      'deviceSilentModeRequested': highAlert,
+      'urgency': _urgency(category, emergencyType),
       'instructions': instructions,
       'doNotCall': doNotCall,
       'bloodGroup': bloodGroup,
+      // This is only a flag. Audio bytes are not recorded or uploaded by this starter.
       'audioRequested': audioRequested,
-      'audioUrl': audioUrl,
-      'audioObjectPath': audioUrl == null ? null : 'uploaded',
+      'audioObjectPath': null,
       'location': latitude == null || longitude == null
           ? null
           : {
