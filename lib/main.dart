@@ -309,7 +309,9 @@ class _HighAlertPageState extends State<HighAlertPage> {
   bool sending = false;
   @override void initState() { super.initState(); timer = Timer.periodic(const Duration(seconds: 1), (t) { if (!mounted) { t.cancel(); return; } if (seconds <= 1) { t.cancel(); setState(() => seconds = 0); _sendHighAlert(); } else { setState(() => seconds--); } }); }
   Future<void> _sendHighAlert() async {
-    if (sending || !mounted) return;
+    if (sending || !mounted) {
+      return;
+    }
     sending = true;
     final draft = SosDraft()..category = 'HIGH ALERT SOS'..emergency = 'Immediate Help Required'..notes = 'Automatic high-alert request after 5-second countdown. No further questions.';
     await appState.createSos(draft, highAlert: true);
@@ -498,9 +500,13 @@ class ResponderPage extends StatelessWidget {
             final isHigh = data['highAlert'] == true || data['urgency'] == 'high_alert';
             if (isHigh && alertedHighAlertIds.add(doc.id)) {
               WidgetsBinding.instance.addPostFrameCallback((_) async {
-                if (!context.mounted) return;
+                if (!context.mounted) {
+                  return;
+                }
                 try { await highAlertSirenPlayer.play(AssetSource('high_alert_siren.ogg')); } catch (_) {}
-                if (!context.mounted) return;
+                if (!context.mounted) {
+                  return;
+                }
                 showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(backgroundColor: const Color(0xFF69000B), title: const Text('🚨 HIGH ALERT SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)), content: Text('A person needs immediate assistance.\nLocation: ${(data['location'] as Map<String, dynamic>?)?['latitude'] ?? 'unavailable'}, ${(data['location'] as Map<String, dynamic>?)?['longitude'] ?? 'unavailable'}\n\nRespond only if you can do so safely.', style: const TextStyle(color: Colors.white)), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CLOSE', style: TextStyle(color: Colors.white))), FilledButton(onPressed: () async { try { await SosRepository.instance.updateStatus(doc.id, 'accepted'); } catch (_) {} if (dialogContext.mounted) Navigator.pop(dialogContext); }, child: const Text('ACCEPT SOS'))]));
               });
             }
