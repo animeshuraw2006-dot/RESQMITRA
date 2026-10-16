@@ -1,0 +1,24 @@
+name: Flutter CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      # This project ZIP did not include the Android platform folder. Generate it
+      # on the runner before resolving packages/building the APK.
+      - run: flutter create --platforms=android --org in.resqmitra .
+      - run: flutter pub get
+      - run: dart format lib
+      - run: flutter analyze
+      - run: flutter build apk --debug --dart-define=SUPABASE_URL="${{ vars.SUPABASE_URL }}" --dart-define=SUPABASE_PUBLISHABLE_KEY="${{ vars.SUPABASE_PUBLISHABLE_KEY }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resq-mitra-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
